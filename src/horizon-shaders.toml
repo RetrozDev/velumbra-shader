@@ -1,23 +1,28 @@
 schema = 1
 id = "velumbra"
 name = "Velumbra"
-version = "1.0.0"
+version = "1.1.0"
 api = "0.1"
-description = "Warm cinematic lighting: scattered-light sky, volumetric clouds, soft sun shadows, light shafts, reflective waving water and filmic grading."
+description = "Warm cinematic lighting: scattered-light sky, volumetric and cirrus clouds, soft PCSS shadows, light shafts, reflective water with caustics, cave mist, bloom and temporal filtering."
 authors = ["RetrozDev"]
 license = "MIT"
 shared = ["common.wgsl"]
 
 [sky]
 file = "sky.wgsl"
-name = "Scattering sky and volumetric clouds"
+name = "Scattering sky"
+clouds = false
+sun = false
+stars = false
 
 [material]
-file = "material.wgsl"
+file = "terrain/material.wgsl"
+files = ["terrain/shadows.wgsl", "terrain/water.wgsl"]
 name = "Sunlight, shadows and water"
+fog = false
 
 [vertex]
-file = "vertex.wgsl"
+file = "terrain/vertex.wgsl"
 name = "Wind and waves"
 
 [weather]
@@ -25,7 +30,7 @@ file = "weather.wgsl"
 name = "Lit rain and snow"
 
 [reflection]
-option = "water_reflections"
+option = "mirror_reflections"
 
 [shadow]
 resolution = 1536
@@ -33,6 +38,15 @@ distance = 128.0
 option = "shadows"
 resolution_option = "shadow_resolution"
 distance_option = "shadow_distance"
+
+[budget]
+gpu_ms = 6.0
+
+[[textures]]
+id = "blue_noise_tex"
+file = "textures/blue_noise.png"
+filter = "nearest"
+wrap = "repeat"
 
 [[materials]]
 id = 1
@@ -94,17 +108,89 @@ id = 5
 sprites = ["block/water_still", "block/water_flow"]
 
 [[post]]
-file = "post/atmosphere.wgsl"
-name = "Fog and light shafts"
+file = "post/volume.wgsl"
+files = ["post/shared.wgsl"]
+name = "Clouds, light shafts and mist"
+output = "volume"
+scale = 0.5
 
 [[post]]
-file = "post/grade.wgsl"
-name = "Bloom and filmic grade"
+file = "post/volume_history.wgsl"
+files = ["post/shared.wgsl"]
+name = "Volumetrics history"
+output = "volume_history"
+scale = 0.5
+
+[[post]]
+file = "post/composite.wgsl"
+files = ["post/shared.wgsl"]
+name = "Fog and volumetrics"
+
+[[post]]
+file = "post/bloom_down.wgsl"
+files = ["post/shared.wgsl"]
+name = "Bloom downsample"
+output = "bloom_down"
+scale = 0.25
+
+[[post]]
+file = "post/bloom_blur.wgsl"
+files = ["post/shared.wgsl"]
+name = "Bloom blur"
+output = "bloom_blur"
+scale = 0.25
+
+[[post]]
+file = "post/temporal.wgsl"
+files = ["post/shared.wgsl"]
+name = "Temporal filter"
+
+[[post]]
+file = "post/final.wgsl"
+files = ["post/shared.wgsl"]
+name = "Tone map and grade"
+
+[[pages]]
+id = "main"
+name = "Velumbra"
+items = ["quality", "exposure", "page:lighting", "page:sky", "page:water", "page:picture"]
+
+[[pages]]
+id = "lighting"
+name = "Lighting"
+description = "Shadows, light shafts and fog."
+items = ["shadows", "shadow_resolution", "shadow_distance", "shadow_softness", "light_shafts", "shaft_strength", "cave_fog", "fog_density"]
+
+[[pages]]
+id = "sky"
+name = "Sky"
+description = "Clouds, stars, auroras and wind."
+items = ["volumetric_clouds", "cirrus_clouds", "cloud_coverage", "night_sky", "aurora", "aurora_intensity", "waving_plants"]
+
+[[pages]]
+id = "water"
+name = "Water"
+description = "Waves and reflections."
+items = ["water_waves", "mirror_reflections"]
+
+[[pages]]
+id = "picture"
+name = "Picture"
+description = "Bloom, grade and temporal filtering."
+items = ["bloom", "saturation", "warmth", "vignette", "temporal_filter"]
+
+[[options]]
+id = "quality"
+name = "Quality"
+description = "Ray-march steps, shadow filtering and reflections. Medium is tuned for 60 fps on a laptop RTX 3050 at 1080p."
+type = "choice"
+values = ["Low", "Medium", "High", "Ultra"]
+default = "Medium"
 
 [[options]]
 id = "exposure"
 name = "Exposure"
-description = "Overall brightness before the filmic curve."
+description = "Overall brightness; the picture still adapts to caves and nights."
 type = "float"
 default = 1.0
 min = 0.5
@@ -123,7 +209,7 @@ id = "shadow_resolution"
 name = "Shadow resolution"
 description = "Sharper shadows cost more."
 type = "choice"
-values = ["1024", "1536", "2048"]
+values = ["1024", "1536", "2048", "3072"]
 default = "1536"
 
 [[options]]
@@ -137,20 +223,60 @@ default = "128"
 [[options]]
 id = "shadow_softness"
 name = "Shadow softness"
-description = "Width of the shadow penumbra."
+description = "Size of the sun's disc: wider penumbrae far from the caster."
 type = "float"
 default = 1.0
-min = 0.0
+min = 0.2
 max = 2.0
 step = 0.1
 
 [[options]]
-id = "cloud_quality"
+id = "light_shafts"
+name = "Light shafts"
+description = "Volumetric sun rays through trees and terrain."
+type = "bool"
+default = true
+
+[[options]]
+id = "shaft_strength"
+name = "Light shaft strength"
+description = "Density of the air the shafts light up."
+type = "float"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.1
+
+[[options]]
+id = "cave_fog"
+name = "Cave and dimension mist"
+description = "Drifting volumetric mist underground, in the Nether and in the End."
+type = "bool"
+default = true
+
+[[options]]
+id = "fog_density"
+name = "Fog density"
+description = "Distance haze and mist."
+type = "float"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.1
+
+[[options]]
+id = "volumetric_clouds"
 name = "Volumetric clouds"
-description = "Ray-marched cumulus clouds. Turn vanilla clouds off in the video settings."
-type = "choice"
-values = ["Off", "Low", "Medium", "High"]
-default = "Medium"
+description = "Ray-marched cumulus. Vanilla clouds are replaced."
+type = "bool"
+default = true
+
+[[options]]
+id = "cirrus_clouds"
+name = "Cirrus clouds"
+description = "A thin, streaky layer high above the cumulus."
+type = "bool"
+default = true
 
 [[options]]
 id = "cloud_coverage"
@@ -163,17 +289,23 @@ max = 1.0
 step = 0.05
 
 [[options]]
-id = "volumetric_light"
-name = "Light shafts"
-description = "Volumetric sun rays through trees and terrain."
-type = "choice"
-values = ["Off", "Low", "Medium", "High"]
-default = "Medium"
+id = "night_sky"
+name = "Night sky"
+description = "Twinkling stars and the Milky Way, turning with the sky."
+type = "bool"
+default = true
 
 [[options]]
-id = "volumetric_strength"
-name = "Light shaft strength"
-description = "Density of the air the shafts light up."
+id = "aurora"
+name = "Auroras"
+description = "Northern lights on some nights, and most nights in cold biomes."
+type = "bool"
+default = true
+
+[[options]]
+id = "aurora_intensity"
+name = "Aurora intensity"
+description = "Brightness of the auroras."
 type = "float"
 default = 1.0
 min = 0.0
@@ -181,14 +313,11 @@ max = 3.0
 step = 0.1
 
 [[options]]
-id = "fog_density"
-name = "Atmospheric fog"
-description = "Distance haze and its blue tint."
-type = "float"
-default = 1.0
-min = 0.0
-max = 3.0
-step = 0.1
+id = "waving_plants"
+name = "Waving plants"
+description = "Leaves, grass and flowers sway in the wind."
+type = "bool"
+default = true
 
 [[options]]
 id = "water_waves"
@@ -198,18 +327,11 @@ type = "bool"
 default = true
 
 [[options]]
-id = "water_reflections"
-name = "Water reflections"
-description = "Mirror reflections of terrain on water (an extra render of the world)."
+id = "mirror_reflections"
+name = "Mirror reflections"
+description = "Renders the world a second time for reflections the screen can't see. Costly."
 type = "bool"
-default = true
-
-[[options]]
-id = "waving_plants"
-name = "Waving plants"
-description = "Leaves, grass and flowers sway in the wind."
-type = "bool"
-default = true
+default = false
 
 [[options]]
 id = "bloom"
@@ -245,5 +367,12 @@ step = 0.1
 id = "vignette"
 name = "Vignette"
 description = "Darkened screen corners."
+type = "bool"
+default = true
+
+[[options]]
+id = "temporal_filter"
+name = "Temporal filter"
+description = "Blends frames to settle the noise of soft shadows and volumetrics."
 type = "bool"
 default = true

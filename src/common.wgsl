@@ -1,6 +1,14 @@
 override exposure: f32 = 1.0;
+override quality: u32 = 1u;
+override cloud_coverage: f32 = 0.5;
 
 const PI_F32: f32 = 3.14159265;
+const GOLDEN_ANGLE: f32 = 2.39996323;
+
+const QUALITY_LOW: u32 = 0u;
+const QUALITY_MEDIUM: u32 = 1u;
+const QUALITY_HIGH: u32 = 2u;
+const QUALITY_ULTRA: u32 = 3u;
 
 const MAT_LEAVES: u32 = 1u;
 const MAT_PLANT: u32 = 2u;
@@ -8,17 +16,21 @@ const MAT_TALL_LOWER: u32 = 3u;
 const MAT_TALL_UPPER: u32 = 4u;
 const MAT_WATER: u32 = 5u;
 
-// Optical depths of a vertical column of air: Rayleigh, Mie and ozone.
 const TAU_RAYLEIGH: vec3<f32> = vec3<f32>(0.0464, 0.108, 0.265);
 const TAU_MIE: f32 = 0.03;
 const TAU_OZONE: vec3<f32> = vec3<f32>(0.021, 0.06, 0.003);
 const SKY_RADIANCE: f32 = 15.0;
 const SUN_IRRADIANCE: f32 = 2.6;
+const SUN_DISC_RADIANCE: f32 = 60.0;
 const MOON_LIGHT: vec3<f32> = vec3<f32>(0.035, 0.05, 0.085);
 const NIGHT_SKY: vec3<f32> = vec3<f32>(0.007, 0.009, 0.022);
+const TORCH_COLOR: vec3<f32> = vec3<f32>(1.0, 0.56, 0.24);
 
-const CLOUD_BOTTOM: f32 = 260.0;
-const CLOUD_TOP: f32 = 470.0;
+const CUMULUS_BOTTOM: f32 = 260.0;
+const CUMULUS_TOP: f32 = 470.0;
+const CIRRUS_HEIGHT: f32 = 1100.0;
+
+const WATER_ABSORPTION: vec3<f32> = vec3<f32>(0.30, 0.075, 0.055);
 
 fn to_linear(c: vec3<f32>) -> vec3<f32> {
     return pow(max(c, vec3<f32>(0.0)), vec3<f32>(2.2));
@@ -36,32 +48,39 @@ fn in_overworld() -> bool {
     return frame.dimension == 0;
 }
 
-// Hable's filmic curve, normalised to a white point of 11.2.
-fn filmic_curve(x: vec3<f32>) -> vec3<f32> {
-    let a = 0.22;
-    let b = 0.30;
-    let c = 0.10;
-    let d = 0.20;
-    let e = 0.01;
-    let f = 0.30;
-    return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f;
+fn in_nether() -> bool {
+    return frame.dimension == -1;
 }
 
-// Exposure follows the light around the eye, so caves and nights open up a little.
+fn sun_visibility() -> f32 {
+    return smoothstep(-0.12, 0.02, frame.sun_direction.y);
+}
+
+fn moon_visibility() -> f32 {
+    return smoothstep(-0.05, 0.12, frame.moon_direction.y) * (1.0 - sun_visibility());
+}
+
+// Eased by Horizon (half-life of 2 s), so exposure follows caves and nights without stepping.
 fn scene_exposure() -> f32 {
-    let eye_sky = frame.eye_light_smooth.y;
-    let adapt = mix(1.7, 1.0, smoothstep(0.1, 0.7, eye_sky));
-    return exposure * adapt * 2.0;
+    let outdoors = smoothstep(0.1, 0.7, frame.eye_light_smooth.y);
+    let night = mix(1.0, 2.3, (1.0 - sun_visibility()) * outdoors);
+    let indoors = mix(2.0, 1.0, outdoors);
+    var dimension = 1.0;
+    if !in_overworld() {
+        dimension = 1.6;
+    }
+    return exposure * 1.15 * night * indoors * dimension;
 }
 
-// Scene-referred linear light to the display-referred value the frame stores.
-fn display_linear(hdr: vec3<f32>) -> vec3<f32> {
-    let white = filmic_curve(vec3<f32>(11.2));
-    return clamp(filmic_curve(hdr * scene_exposure()) / white, vec3<f32>(0.0), vec3<f32>(1.0));
+// The frame is 8-bit, so every stage stores light through one invertible curve (1 - e^-x);
+// the post chain undoes it, works in half floats, and applies the same curve once at the end.
+// Vanilla's own draws (entities, moon, stars) pass through it unchanged.
+fn store_color(hdr: vec3<f32>) -> vec3<f32> {
+    return to_gamma(1.0 - exp(-max(hdr, vec3<f32>(0.0)) * scene_exposure()));
 }
 
-fn encode_display(hdr: vec3<f32>) -> vec3<f32> {
-    return to_gamma(display_linear(hdr));
+fn load_color(stored: vec3<f32>) -> vec3<f32> {
+    return -log(max(1.0 - to_linear(min(stored, vec3<f32>(1.0))), vec3<f32>(1.0 / 512.0)));
 }
 
 fn hash_u32(x: u32) -> u32 {
@@ -100,24 +119,19 @@ fn value_noise3(p: vec3<f32>) -> f32 {
     let y1z0 = hash_u32((i.y + 1u) ^ z0);
     let y0z1 = hash_u32(i.y ^ z1);
     let y1z1 = hash_u32((i.y + 1u) ^ z1);
-    let n000 = unit_float(hash_u32(i.x ^ y0z0));
-    let n100 = unit_float(hash_u32((i.x + 1u) ^ y0z0));
-    let n010 = unit_float(hash_u32(i.x ^ y1z0));
-    let n110 = unit_float(hash_u32((i.x + 1u) ^ y1z0));
-    let n001 = unit_float(hash_u32(i.x ^ y0z1));
-    let n101 = unit_float(hash_u32((i.x + 1u) ^ y0z1));
-    let n011 = unit_float(hash_u32(i.x ^ y1z1));
-    let n111 = unit_float(hash_u32((i.x + 1u) ^ y1z1));
-    let x00 = mix(n000, n100, w.x);
-    let x10 = mix(n010, n110, w.x);
-    let x01 = mix(n001, n101, w.x);
-    let x11 = mix(n011, n111, w.x);
+    let x00 = mix(unit_float(hash_u32(i.x ^ y0z0)), unit_float(hash_u32((i.x + 1u) ^ y0z0)), w.x);
+    let x10 = mix(unit_float(hash_u32(i.x ^ y1z0)), unit_float(hash_u32((i.x + 1u) ^ y1z0)), w.x);
+    let x01 = mix(unit_float(hash_u32(i.x ^ y0z1)), unit_float(hash_u32((i.x + 1u) ^ y0z1)), w.x);
+    let x11 = mix(unit_float(hash_u32(i.x ^ y1z1)), unit_float(hash_u32((i.x + 1u) ^ y1z1)), w.x);
     return mix(mix(x00, x10, w.y), mix(x01, x11, w.y), w.z);
 }
 
-// Jimenez's interleaved gradient noise: a per-pixel offset that hides banding and undersampling.
-fn pixel_dither(pixel: vec2<f32>) -> f32 {
-    return fract(52.9829189 * fract(dot(floor(pixel), vec2<f32>(0.06711056, 0.00583715))));
+// Four decorrelated blue-noise values for a pixel, shifted along the golden ratio every frame so
+// temporal accumulation sees a different, still well-spread pattern each time.
+fn blue_noise(pixel: vec2<f32>) -> vec4<f32> {
+    let texel = vec2<i32>(floor(pixel)) & vec2<i32>(63);
+    let n = textureLoad(blue_noise_tex, texel, 0);
+    return fract(n + f32(frame.frame_index % 64u) * 0.61803398);
 }
 
 fn henyey_greenstein(cos_theta: f32, g: f32) -> f32 {
@@ -132,14 +146,6 @@ fn air_mass(mu: f32) -> f32 {
     return 1.0 / (m + 0.50572 * pow(max(96.07995 - zenith, 0.5), -1.6364));
 }
 
-fn sun_visibility() -> f32 {
-    return smoothstep(-0.12, 0.02, frame.sun_direction.y);
-}
-
-fn moon_visibility() -> f32 {
-    return smoothstep(-0.05, 0.12, frame.moon_direction.y) * (1.0 - sun_visibility());
-}
-
 fn sun_transmittance(height_factor: f32) -> vec3<f32> {
     let m = air_mass(frame.sun_direction.y + 0.035) * height_factor;
     return exp(-(TAU_RAYLEIGH + TAU_MIE + TAU_OZONE) * m);
@@ -149,7 +155,7 @@ fn overcast() -> f32 {
     return clamp(frame.rain * 0.85 + frame.thunder * 0.15, 0.0, 1.0);
 }
 
-// Clear-sky radiance along `dir` from single scattering, plus the night sky.
+// Single scattering along `dir` with an air-mass approximation, plus the night sky.
 fn clear_sky(dir: vec3<f32>) -> vec3<f32> {
     let up = max(dir.y, 0.0);
     let sun = frame.sun_direction;
@@ -172,10 +178,14 @@ fn clear_sky(dir: vec3<f32>) -> vec3<f32> {
 fn sky_radiance(dir: vec3<f32>) -> vec3<f32> {
     let clear = clear_sky(dir);
     let grey = vec3<f32>(luminance(clear)) * vec3<f32>(0.62, 0.66, 0.72);
-    return mix(clear, grey, overcast());
+    var sky = mix(clear, grey, overcast());
+    if dir.y < 0.0 {
+        sky *= mix(1.0, 0.35, smoothstep(0.0, -0.3, dir.y));
+    }
+    return sky;
 }
 
-// The light the sun (or the moon by night) lands on a surface facing it.
+// What the sun (or the moon by night) lands on a surface facing it.
 fn direct_light() -> vec3<f32> {
     let sun = SUN_IRRADIANCE * sun_transmittance(1.0) * sun_visibility();
     let moon = MOON_LIGHT * moon_visibility();
@@ -188,23 +198,43 @@ fn sky_ambient() -> vec3<f32> {
     return (zenith * 0.65 + horizon * 0.5) * 1.1;
 }
 
+fn dimension_ambient() -> vec3<f32> {
+    if in_nether() {
+        return mix(vec3<f32>(0.16, 0.07, 0.04), to_linear(frame.fog_color) * 0.6, 0.5);
+    }
+    return vec3<f32>(0.075, 0.06, 0.1);
+}
+
 fn reconstruct_position(screen: vec2<f32>, depth: f32) -> vec3<f32> {
     let clip = vec4<f32>(screen.x * 2.0 - 1.0, 1.0 - screen.y * 2.0, depth, 1.0);
     let view = frame.projection_inverse * clip;
     return (frame.view_inverse * vec4<f32>(view.xyz / view.w, 0.0)).xyz;
 }
 
-fn cloud_coverage_map(xz: vec2<f32>) -> f32 {
-    let p = xz / 2400.0;
-    let n = value_noise2(p) * 0.6 + value_noise2(p * 2.3 + 7.1) * 0.3 + value_noise2(p * 5.1) * 0.1;
-    return n;
-}
-
 fn cloud_wind() -> vec2<f32> {
     return vec2<f32>(frame.time * 4.0, frame.time * 1.5);
 }
 
-// Water surface height, in blocks around 0, and its slope.
+fn cloud_coverage_map(xz: vec2<f32>) -> f32 {
+    let p = xz / 2400.0;
+    return value_noise2(p) * 0.6 + value_noise2(p * 2.3 + 7.1) * 0.3 + value_noise2(p * 5.1) * 0.1;
+}
+
+fn cumulus_coverage_bias() -> f32 {
+    return mix(-0.28, 0.32, cloud_coverage) + frame.rain * 0.3;
+}
+
+// A thin, streaky layer high above the cumulus: density 0..1 at a world-space point of it.
+fn cirrus_density(xz: vec2<f32>) -> f32 {
+    let p = (xz + cloud_wind() * 3.0) / 900.0;
+    let warp = vec2<f32>(value_noise2(p * 0.7), value_noise2(p * 0.7 + 5.2)) * 1.6;
+    let streak = value_noise2(vec2<f32>(p.x * 0.35, p.y * 2.6) + warp);
+    let detail = value_noise2(p * 4.0 + warp * 2.0);
+    let shape = streak * 0.75 + detail * 0.25;
+    return smoothstep(0.52 - cloud_coverage * 0.2, 0.85, shape) * (1.0 - frame.rain * 0.6);
+}
+
+// Water surface height (x, blocks around 0) and its slope (yz).
 fn wave_field(xz: vec2<f32>, t: f32) -> vec3<f32> {
     var height = 0.0;
     var slope = vec2<f32>(0.0);
