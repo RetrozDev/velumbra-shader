@@ -6,96 +6,136 @@
 
 <p align="center">A warm, cinematic shader pack for <a href="https://playhorizon.dev">Horizon</a>, the Minecraft client rewritten in Rust.</p>
 
-Velumbra is written from scratch in WGSL for Horizon's native shader API. It aims for the soft, golden look
-of classic Minecraft shader packs using publicly documented techniques:
+Velumbra is written from scratch in WGSL for Horizon's native shader API (0.1). It aims for the soft, golden look
+of classic Minecraft shader packs with publicly documented techniques, and keeps its cost measured: Medium is tuned
+for 60 fps at 1080p on a laptop RTX 3050.
 
-- **Sky**: analytic single scattering (Rayleigh and Mie phase functions, Kasten–Young air mass, ozone
-  absorption) for deep blue noons, orange sunsets and blue twilights.
-- **Volumetric clouds**: ray-marched cumulus slab with Beer–Lambert extinction, a powder term and a
-  dual-lobe Henyey–Greenstein phase.
-- **Soft shadows**: sun and moon shadow maps filtered with a rotated golden-angle disc, with a bias that
-  follows the shadow map's distortion.
-- **Light shafts**: volumetric god rays ray-marched through the shadow map, also under water.
-- **Water**: animated wave normals, Fresnel blend of planar reflections and the scattered sky, refraction,
-  depth-based absorption and a sun glint.
-- **Lighting**: warm sunlight, blue sky ambient, warm block light, translucent foliage, wet surfaces in rain.
-- **Atmosphere and grade**: height fog tinted by the sky, render-distance fog that blends into it, filmic
-  tone mapping (Hable), soft two-ring bloom, warm grade and vignette.
-- **Motion**: leaves, grass, flowers and crops sway with the wind; water surfaces move.
+## Features
+
+- **HDR post chain**: every stage stores light through one invertible curve, the post passes undo it and work in
+  half floats, and one filmic curve maps the result at the end. Exposure adapts to caves and nights.
+- **Sky**: analytic single scattering (Rayleigh and Mie phases, Kasten–Young air mass, ozone) with its own sun disc.
+- **Night sky**: twinkling stars and a procedural Milky Way with dust lanes, turning with the sky; auroras on some
+  nights and most nights in cold biomes.
+- **Clouds**: ray-marched cumulus at half resolution with Wrenninge's multiple-scattering approximation, a cirrus
+  layer above, blue-noise dithering and temporal accumulation.
+- **Shadows**: percentage-closer soft shadows whose penumbra widens with the distance to the occluder, light tinted
+  by stained glass, caustics under water.
+- **Light shafts and mist**: volumetric sun rays through the shadow map, drifting mist in caves, the Nether and the
+  End, all at half resolution and accumulated over frames.
+- **Water**: waves, screen-space reflections falling back to the sky and clouds, optional mirror reflections,
+  refraction, depth absorption and a sun glint.
+- **Lighting**: warm sunlight, blue sky ambient, warm block light with a slight direction, translucent foliage, wet
+  surfaces in rain, coloured lights from `[[lights]]` and dynamic lights.
+- **Picture**: Jimenez's 13-tap bloom from HDR, temporal filtering with colour clipping, warm grade, vignette.
 
 ## Installation
 
 1. Download `velumbra-<version>.hshader` from the releases, or build it (below).
-2. Put it in Horizon's shader pack folder:
-   - Windows: `%APPDATA%\horizon\shaderpacks\`
-   - Or use the button that opens the pack folder in the game's shader pack screen.
-3. In the game, pick **Velumbra** in the shader pack list.
-4. Recommended: set **Clouds** to **Off** in the video settings, so vanilla clouds do not draw over the
-   volumetric ones.
+2. Put it in Horizon's shader pack folder: `%APPDATA%\horizon\shaderpacks\` on Windows, or use the button that opens
+   the pack folder in the game's shader pack screen.
+3. Pick **Velumbra** in the shader pack list.
+
+The pack replaces vanilla's clouds, sun and stars; the moon stays.
+
+## Quality presets
+
+| | Low | Medium | High | Ultra |
+|---|---|---|---|---|
+| Cloud steps (light steps) | 8 (2) | 14 (3) | 22 (4) | 32 (6) |
+| Light shaft steps | 6 | 10 | 16 | 24 |
+| Mist steps | 3 | 4 | 6 | 8 |
+| Shadow blocker search / filter taps | 0 / 4 (plain PCF) | 5 / 8 | 8 / 12 | 12 / 16 |
+| Water screen-space reflection steps | sky only | 14 | 22 | 32 |
+| Aurora layers | 6 | 10 | 14 | 20 |
+| Milky Way | simplified | dust lanes | dust lanes | dust lanes |
+| Caustics | off | on | on | on |
+
+The shadow map's resolution and distance are separate options (1536 and 128 blocks by default).
+
+## Estimated cost
+
+Estimates at 1080p on a laptop RTX 3050, in milliseconds, for an open landscape at noon with water in view. They
+come from the work each pass does, not from a measurement: F3's GPU timers in the game show the real numbers
+per pass, and the next release will replace this table with them.
+
+| Pass | Resolution | Low | Medium | High | Ultra |
+|---|---|---|---|---|---|
+| Shadow map (Horizon, 1536) | 1536² | 0.6 | 0.6 | 0.6 | 0.6 |
+| Sky | sky pixels | 0.15 | 0.25 | 0.35 | 0.5 |
+| Terrain and water | full | 0.4 | 0.8 | 1.2 | 1.7 |
+| Clouds, light shafts, mist | half | 0.7 | 1.2 | 2.1 | 3.3 |
+| Volumetrics history | half | 0.03 | 0.03 | 0.03 | 0.03 |
+| Fog and volumetrics | full | 0.3 | 0.3 | 0.3 | 0.3 |
+| Bloom | quarter | 0.2 | 0.2 | 0.2 | 0.2 |
+| Temporal filter | full | 0.2 | 0.2 | 0.2 | 0.2 |
+| Tone map and grade | full | 0.1 | 0.1 | 0.1 | 0.1 |
+| **Total over vanilla** | | **~2.7** | **~3.7** | **~5.1** | **~6.9** |
+
+Early-outs keep the worst cases down: cloud marching stops at terrain, under thick cloud and outside the cloud
+slab; light shafts stop underground; shadow filtering stops when the blocker search finds nothing. Mirror
+reflections render the world a second time and can double the terrain cost, so they are off by default.
 
 ## Settings
 
-Every setting is in the shader pack's option screen in game.
+The options screen opens on the preset and exposure, with pages for Lighting (shadows, light shafts, mist, fog), Sky
+(clouds, night sky, auroras, wind), Water (waves, mirror reflections) and Picture (bloom, saturation, warmth,
+vignette, temporal filter).
 
-| Setting | Default | What it does |
-|---|---|---|
-| Exposure | 1.0 | Brightness before the filmic curve. |
-| Sun shadows | on | Shadow maps cast by terrain, trees and entities. |
-| Shadow resolution | 1536 | 1024, 1536 or 2048 texels. |
-| Shadow distance | 128 | 64 to 160 blocks. |
-| Shadow softness | 1.0 | Width of the penumbra. |
-| Volumetric clouds | Medium | Off, Low, Medium or High (ray-march steps). |
-| Cloud coverage | 0.5 | How much of the sky the clouds cover. |
-| Light shafts | Medium | Off, Low, Medium or High. |
-| Light shaft strength | 1.0 | Density of the lit air. |
-| Atmospheric fog | 1.0 | Distance haze. |
-| Water waves | on | Moving waves and normals. |
-| Water reflections | on | Planar terrain reflections (renders the world a second time). |
-| Waving plants | on | Wind on leaves, grass, flowers and crops. |
-| Bloom | 0.6 | Glow around bright light; 0 turns it off. |
-| Saturation | 1.1 | Colour intensity. |
-| Warmth | 1.0 | Warm grade; 0 is neutral. |
-| Vignette | on | Darkened corners. |
+## Connected glass
 
-On a low-end GPU, lower the cloud quality and light shafts first, then the shadow resolution.
+A shader pack cannot do it: the material stage sees one point of one face, not the neighbouring blocks. Horizon
+reads OptiFine and Continuity connected-texture resource packs (`optifine/ctm/**/*.properties`, every method), so a
+CTM resource pack for glass and stained glass gives seamless glass alongside Velumbra.
 
 ## Building
 
-The pack is a zip of `src/` (plus this README and the license) named `dist/velumbra-<version>.hshader`.
-
 ```powershell
-./build.ps1                  # Windows PowerShell
+./build.ps1        # Windows PowerShell
 ```
 
 ```bash
-./build.sh                   # Linux, macOS, Git Bash
+./build.sh         # Linux, macOS, Git Bash
 ```
 
-Both scripts validate every shader module with [naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga)
-first (`cargo install naga-cli`). A module is checked the way Horizon compiles it: a stand-in for Horizon's
-prelude (`tools/prelude/`), then `common.wgsl`, then the stage's files. Pass `-SkipValidation` or
-`--skip-validation` to package without naga.
+Both check the pack with `tools/check.py` and write `dist/velumbra-<version>.hshader`. The check composes every
+stage the way Horizon does, with Horizon's own prelude (`tools/prelude/`, extracted from `horizon-shader-api`),
+validates it with [naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) (`cargo install naga-cli`), translates it
+to SPIR-V, Metal and HLSL with the options at their defaults, minimums and maximums, and enforces the manifest's
+rules (bindings, names, overrides, post targets, pages, texture reads). Pass `-SkipValidation` or
+`--skip-validation` to package without it.
+
+`python tools/preview.py` renders the sky, night sky, clouds, water and tone curve into `preview/` with a NumPy port
+of the shaders. `python tools/blue_noise.py` regenerates the blue-noise texture.
 
 ## Layout
 
 ```
-src/horizon-shaders.toml   manifest: stages, materials, shadow map, options
-src/common.wgsl            shared: atmosphere, noise, tone mapping, waves
-src/sky.wgsl               sky and volumetric clouds
-src/material.wgsl          terrain lighting, shadows, water
-src/vertex.wgsl            wind and waves
-src/weather.wgsl           rain and snow
-src/post/atmosphere.wgsl   fog and light shafts
-src/post/grade.wgsl        bloom and colour grade
-tools/prelude/             validation stand-ins for Horizon's prelude
+src/horizon-shaders.toml     manifest: stages, passes, materials, options, pages
+src/common.wgsl              shared: HDR encoding, exposure, atmosphere, noise, clouds, waves
+src/sky.wgsl                 sky, sun, stars, Milky Way, auroras
+src/terrain/                 material (lighting), shadows (PCSS, caustics), water (SSR), vertex (wind)
+src/weather.wgsl             rain and snow
+src/post/volume.wgsl         clouds, light shafts and mist at half resolution, temporally blended
+src/post/composite.wgsl      fog and the volumetrics brought up to full resolution
+src/post/bloom_*.wgsl        bloom
+src/post/temporal.wgsl       temporal filter
+src/post/final.wgsl          tone map and grade
+src/textures/blue_noise.png  4-channel blue noise
+tools/                       check, prelude, previews, blue-noise generator
 ```
 
 ## Limits
 
-Horizon's shader API 0.1 renders into an 8-bit frame, so each stage tone maps its own output and bloom
-works on the display-referred picture. Entities and the vanilla sun, moon and stars are drawn by Horizon
-itself, and the Nether and the End keep vanilla lighting.
+- Horizon draws shader API 0.2 packs (linear-light frame, `[tonemap]`) only with `HORIZON_HDR_FRAME=float` set,
+  so Velumbra stays on 0.1. The world's frame is 8-bit there, which caps stored highlights at about 6 times white
+  before the post chain takes over in half floats.
+- Entities, block entities, particles and the hand are drawn by Horizon with vanilla's lighting: API 0.1 has no
+  stage for them.
+- The sky stage gets no pixel position, so the auroras use per-ray hash noise rather than blue noise; the
+  temporal filter smooths it.
 
 ## License
 
-[MIT](LICENSE). The logo is part of the project and shares its license.
+[MIT](LICENSE). The logo is part of the project and shares its license. `tools/prelude/` is extracted from Horizon's
+`horizon-shader-api` (MIT).
