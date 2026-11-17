@@ -21,14 +21,26 @@ fn block_light_facing(n: vec3<f32>, gradient: vec3<f32>) -> f32 {
     return mix(0.72, 1.0, max(dot(n, toward), 0.0));
 }
 
-fn torch_light(level: f32) -> vec3<f32> {
-    return TORCH_COLOR * (pow(level, 4.0) * 2.2 + pow(level, 1.5) * 0.06);
+override dynamic_light_strength: f32 = 1.0;
+
+// Block light in the colour of the sources around: warm by default, the manifest's [[lights]]
+// colours where they reach (soul fire blue, amethyst violet).
+fn torch_light(level: f32, position: vec3<f32>) -> vec3<f32> {
+    let around = block_light_color(position);
+    let tint = to_linear(around.rgb / max(max(around.r, max(around.g, around.b)), 1e-3));
+    let color = mix(TORCH_COLOR, tint, clamp(around.a, 0.0, 1.0));
+    return color * (pow(level, 4.0) * 2.2 + pow(level, 1.5) * 0.06);
+}
+
+// Held and dropped light sources and burning particles, which Horizon gathers while its
+// Dynamic Lights setting is on.
+fn dynamic_light(input: MaterialInput, facing: f32) -> vec3<f32> {
+    return to_linear(input.colored_light) * 2.4 * dynamic_light_strength * facing;
 }
 
 fn other_dimension(input: MaterialInput, base: vec3<f32>, albedo: vec3<f32>, facing: f32) -> vec3<f32> {
     let ambient = dimension_ambient() * mix(0.55, 1.0, input.light.x);
-    let colored = to_linear(input.colored_light) * 1.5;
-    var color = base * (ambient + torch_light(input.light.x) * facing + colored);
+    var color = base * (ambient + torch_light(input.light.x, input.position) * facing + dynamic_light(input, facing));
     color += albedo * input.emission * input.emission * 4.0;
     if input.fluid == 2u {
         color = albedo * 3.0 + base * 0.5;
@@ -99,9 +111,8 @@ fn material(input: MaterialInput) -> Surface {
     let ambient = sky_ambient() * hemisphere * sky_occlusion
         + sun * 0.035 * sky_occlusion * (1.0 - max(n.y, 0.0));
     let minimum = vec3<f32>(0.008, 0.009, 0.012) * (1.0 - sky_level) + vec3<f32>(frame.night_vision * 0.6);
-    let colored = to_linear(input.colored_light) * 1.5;
-
-    var color = base * (direct + ambient + torch_light(block_level) * facing + minimum + colored);
+    let block = torch_light(block_level, input.position) * facing + dynamic_light(input, facing);
+    var color = base * (direct + ambient + block + minimum);
     color += albedo * input.emission * input.emission * 4.0;
     if input.fluid == 2u {
         color = albedo * 3.0 + base * 0.5;

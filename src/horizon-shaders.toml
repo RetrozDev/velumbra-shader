@@ -1,7 +1,7 @@
 schema = 1
 id = "velumbra"
 name = "Velumbra"
-version = "1.1.0"
+version = "1.1.1"
 api = "0.1"
 description = "Warm cinematic lighting: scattered-light sky, volumetric and cirrus clouds, soft PCSS shadows, light shafts, reflective water with caustics, cave mist, bloom and temporal filtering."
 authors = ["RetrozDev"]
@@ -47,6 +47,44 @@ id = "blue_noise_tex"
 file = "textures/blue_noise.png"
 filter = "nearest"
 wrap = "repeat"
+
+[[lights]]
+color = [1.0, 0.62, 0.32]
+blocks = ["torch", "wall_torch", "lantern", "campfire", "fire", "jack_o_lantern", "*candle*"]
+
+[[lights]]
+color = [1.0, 0.45, 0.12]
+blocks = ["lava", "magma_block"]
+
+[[lights]]
+color = [1.0, 0.82, 0.5]
+blocks = ["glowstone", "shroomlight", "ochre_froglight"]
+
+[[lights]]
+color = [0.35, 0.8, 1.0]
+blocks = ["soul_torch", "soul_wall_torch", "soul_lantern", "soul_campfire", "soul_fire"]
+
+[[lights]]
+color = [0.75, 0.95, 1.0]
+blocks = ["sea_lantern", "end_rod", "beacon", "conduit", "verdant_froglight"]
+
+[[lights]]
+color = [0.95, 0.15, 0.08]
+blocks = ["redstone_torch", "redstone_wall_torch"]
+
+[[lights]]
+color = [0.75, 0.45, 1.0]
+blocks = ["amethyst_cluster", "*_amethyst_bud", "crying_obsidian", "pearlescent_froglight"]
+
+[[particle_lights]]
+particles = ["flame", "small_flame", "lava"]
+color = [1.0, 0.6, 0.25]
+reach = 4.0
+
+[[particle_lights]]
+particles = ["soul_fire_flame"]
+color = [0.35, 0.8, 1.0]
+reach = 4.0
 
 [[materials]]
 id = 1
@@ -158,8 +196,8 @@ items = ["quality", "exposure", "page:lighting", "page:sky", "page:water", "page
 [[pages]]
 id = "lighting"
 name = "Lighting"
-description = "Shadows, light shafts and fog."
-items = ["shadows", "shadow_resolution", "shadow_distance", "shadow_softness", "light_shafts", "shaft_strength", "cave_fog", "fog_density"]
+description = "Shadows, light shafts, dynamic lights and fog."
+items = ["shadows", "shadow_resolution", "shadow_distance", "shadow_softness", "light_shafts", "shaft_strength", "dynamic_light_strength", "cave_fog", "fog_density"]
 
 [[pages]]
 id = "sky"
@@ -245,6 +283,16 @@ type = "float"
 default = 1.0
 min = 0.0
 max = 3.0
+step = 0.1
+
+[[options]]
+id = "dynamic_light_strength"
+name = "Dynamic light strength"
+description = "Light from held and dropped torches, lanterns and burning things. Needs Video Settings > Dynamic Lights on."
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
 step = 0.1
 
 [[options]]
