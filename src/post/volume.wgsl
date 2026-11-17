@@ -253,7 +253,7 @@ fn post(input: PostInput) -> vec4<f32> {
         return vec4<f32>(current.rgb, max(current.a, 1e-3));
     }
     let moved = length((before - input.uv) * frame.resolution) * 0.5;
-    let weight = clamp(0.1 + moved * 0.08, 0.1, 0.6);
+    let weight = clamp(0.07 + moved * 0.08, 0.07, 0.6);
     let blended = mix(history, current, weight);
     return vec4<f32>(blended.rgb, max(blended.a, 1e-3));
 }
