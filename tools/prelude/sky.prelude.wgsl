@@ -1,6 +1,5 @@
-// Validation stand-in for the declarations Horizon prepends to every stage (shader API 0.1).
-// Field types follow Horizon's shaders reference; layout and bindings here are arbitrary.
-
+// Extracted from Horizon's horizon-shader-api (MIT, Copyright (c) 2026 Ludovic Marie and the Horizon contributors), commit 9f42064.
+// Horizon shader API prelude (docs/api/shaders-reference.md)
 struct Frame {
     view: mat4x4<f32>,
     projection: mat4x4<f32>,
@@ -52,58 +51,8 @@ struct Frame {
     shadow_resolution: f32,
     shadow_center_texel: f32,
 }
-
-@group(0) @binding(0) var<uniform> frame: Frame;
-
 struct SkyInput {
     direction: vec3<f32>,
     color: vec4<f32>,
 }
-
-struct MaterialInput {
-    albedo: vec4<f32>,
-    tint: vec4<f32>,
-    light: vec2<f32>,
-    lightmap: vec3<f32>,
-    position: vec3<f32>,
-    uv: vec2<f32>,
-    translucent: bool,
-    tags: u32,
-    material: u32,
-    screen: vec2<f32>,
-    face: u32,
-    fluid: u32,
-    emission: f32,
-    normal: vec3<f32>,
-    tangent: vec4<f32>,
-    colored_light: vec3<f32>,
-    displaced: f32,
-}
-
-struct Surface {
-    color: vec4<f32>,
-}
-
-struct VertexInput {
-    position: vec3<f32>,
-    uv: vec2<f32>,
-    material: u32,
-    light: vec2<f32>,
-    tint: vec4<f32>,
-    face: u32,
-    fluid: u32,
-}
-
-struct WeatherInput {
-    color: vec4<f32>,
-    light: vec2<f32>,
-    position: vec3<f32>,
-    snow: bool,
-}
-
-struct PostInput {
-    uv: vec2<f32>,
-    pixel: vec2<f32>,
-    color: vec4<f32>,
-    depth: f32,
-}
+@group(3) @binding(0) var<uniform> frame: Frame;
