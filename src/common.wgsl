@@ -18,7 +18,7 @@ const MAT_WATER: u32 = 5u;
 
 const TAU_RAYLEIGH: vec3<f32> = vec3<f32>(0.0464, 0.108, 0.265);
 const TAU_MIE: f32 = 0.03;
-const TAU_OZONE: vec3<f32> = vec3<f32>(0.021, 0.06, 0.003);
+const TAU_OZONE: vec3<f32> = vec3<f32>(0.035, 0.095, 0.005);
 const SKY_RADIANCE: f32 = 15.0;
 const SUN_IRRADIANCE: f32 = 2.6;
 const SUN_DISC_RADIANCE: f32 = 60.0;

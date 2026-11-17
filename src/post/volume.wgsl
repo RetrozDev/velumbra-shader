@@ -82,8 +82,9 @@ fn cumulus(dir: vec3<f32>, limit: f32, jitter: f32) -> Medium {
     let step_len = (t_end - t_start) / f32(steps);
     let to_light = light_toward();
     let cos_theta = dot(dir, to_light);
-    let sun = direct_light() * 1.4;
-    let ambient = sky_radiance(vec3<f32>(0.0, 1.0, 0.0)) * 1.6 + vec3<f32>(0.002, 0.003, 0.006);
+    let high_sun = SUN_IRRADIANCE * sun_transmittance(0.55) * sun_visibility() + MOON_LIGHT * moon_visibility();
+    let sun = high_sun * (1.0 - overcast() * 0.88) * 1.8;
+    let ambient = sky_radiance(vec3<f32>(0.0, 1.0, 0.0)) * 1.1 + vec3<f32>(0.002, 0.003, 0.006);
     let camera_xz = frame.camera_position.xz;
 
     for (var i = 0; i < 32; i++) {
