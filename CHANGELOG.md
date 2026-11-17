@@ -3,6 +3,20 @@
 All notable changes to Velumbra are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-11-17
+
+### Added
+- Block light takes the colour of its sources from the pack's `[[lights]]`: warm torches and lava, blue soul fire,
+  violet amethyst, cold sea lanterns.
+- Dynamic lights: held and dropped light sources, burning entities and flame particles, with a strength setting
+  (needs Horizon's Dynamic Lights setting).
+
+### Fixed
+- Grain in the auroras: each curtain's glow is now integrated exactly along the ray instead of ray-marched with
+  per-ray noise.
+- Stars crawling and flickering as the view turns: their spot never shrinks below a pixel.
+- Less grain in night clouds: longer temporal accumulation when the camera holds still.
+
 ## [1.1.0] - 2026-11-17
 
 ### Added

@@ -146,7 +146,7 @@ class Frame:
         c, n = np.cos(angle), np.sin(angle)
         return np.stack([c * d[..., 0] - n * d[..., 1], n * d[..., 0] + c * d[..., 1], d[..., 2]], -1)
 
-    def stars(self, cdir):
+    def stars(self, cdir, pixel_angle=0.0):
         grid = cdir * 220.0
         cell = np.floor(grid)
         idv = cell.astype(np.int64).astype(np.int32).view(U32)
@@ -159,7 +159,9 @@ class Frame:
         tw = 0.7 + 0.3 * np.sin(self.time * (2 + 5 * unit_float(h2 + U32(3))) + presence * 60)
         temp = unit_float(hash_u32(h2 + U32(11)))[..., None]
         tint = np.array([1.0, 0.72, 0.5]) * (1 - temp) + np.array([0.7, 0.82, 1.0]) * temp
-        v = (0.05 + mag * 2.5) * tw * np.exp(-dd * dd * 28) * (presence <= 0.06)
+        spot = max(0.19, pixel_angle * 220 * 0.7)
+        energy = 0.19 ** 2 / spot ** 2
+        v = (0.05 + mag * 2.5) * tw * energy * np.exp(-dd * dd / spot ** 2) * (presence <= 0.06)
         return tint * v[..., None]
 
     def milky_way(self, c):
@@ -177,33 +179,70 @@ class Frame:
         tint = np.array([0.55, 0.62, 0.9]) * (1 - core3) + np.array([1.0, 0.82, 0.62]) * core3
         return tint * (band * glow * (0.025 + core * 0.06) * (1 - dust))[..., None]
 
-    def aurora(self, d, layers=14):
+    def aurora_layers(self, d, layers=14, jitter=None):
+        """1.1.0's ray march, with its per-ray jitter."""
         drift = np.array([self.time * 0.004, self.time * 0.0015])
         light = np.zeros(d.shape)
         dy = np.maximum(d[..., 1], 0.02)
         for i in range(layers):
-            h = (i + 0.5) / layers
-            xz = d[..., [0, 2]] / dy[..., None] * (1 + h * 0.45) * 0.55
-            warp = np.stack([value_noise2(xz * 1.3 + drift * 3), value_noise2(xz * 1.3 + 9.1)], -1) * 0.6
-            ridge = 1 - np.abs(value_noise2((xz + warp) * np.array([2.2, 0.6]) + drift) * 2 - 1)
-            curtain = ridge ** 14 * smoothstep(0.3, 0.6, value_noise2(xz * 0.5 - drift))
-            s = smoothstep(0.25, 1.0, h)
-            color = np.array([0.1, 1.0, 0.45]) * (1 - s) + np.array([0.55, 0.2, 0.9]) * s
-            light += color * (curtain * np.exp(-h * 2.2))[..., None]
+            h = (i + (0.5 if jitter is None else jitter)) / layers * np.ones(d.shape[:-1])
+            xz = d[..., [0, 2]] / dy[..., None] * ((1 + h * 0.45) * 0.55)[..., None]
+            g, mask = self.aurora_field(xz, drift)
+            curtain = (1 - np.abs(g)) ** 14 * mask
+            light += self.aurora_color(h) * (curtain * np.exp(-h * 2.2))[..., None]
         return light / layers * 0.35 * (smoothstep(0.02, 0.25, d[..., 1]) * (d[..., 1] > 0.02))[..., None]
 
-    def night(self, d, aurora_activity=1.0):
+    @staticmethod
+    def aurora_field(xz, drift):
+        warp = np.stack([value_noise2(xz * 1.3 + drift * 3), value_noise2(xz * 1.3 + 9.1)], -1) * 0.6
+        g = value_noise2((xz + warp) * np.array([2.2, 0.6]) + drift) * 2 - 1
+        return g, smoothstep(0.3, 0.6, value_noise2(xz * 0.5 - drift))
+
+    @staticmethod
+    def aurora_color(h):
+        s = smoothstep(0.25, 1.0, np.asarray(h))[..., None] if np.ndim(h) else smoothstep(0.25, 1.0, h)
+        return np.array([0.1, 1.0, 0.45]) * (1 - s) + np.array([0.55, 0.2, 0.9]) * s
+
+    def aurora(self, d):
+        """1.1.1's: each stretch of the ray through the layer integrated exactly."""
+        segments = [2, 3, 4, 6][min(self.quality, 3)]
+        drift = np.array([self.time * 0.004, self.time * 0.0015])
+        dy = np.maximum(d[..., 1], 0.02)
+        base = d[..., [0, 2]] / dy[..., None] * 0.55
+        below = self.aurora_field(base, drift)
+        light = np.zeros(d.shape)
+        k = 14.0
+        for i in range(segments):
+            top = (i + 1) / segments
+            above = self.aurora_field(base * (1 + top * 0.45), drift)
+            g0, g1 = below[0], above[0]
+            a, b = np.exp(-k * np.abs(g0)), np.exp(-k * np.abs(g1))
+            span = np.abs(g1 - g0) * k
+            same = np.abs(a - b) / np.maximum(span, 1e-3)
+            cross = (2 - a - b) / np.maximum(span, 1e-3)
+            integral = np.where(span < 1e-3, 0.5 * (a + b), np.where(g0 * g1 >= 0, same, cross))
+            middle = (i + 0.5) / segments
+            glow = integral * 0.5 * (below[1] + above[1])
+            light += self.aurora_color(middle) * (glow * np.exp(-middle * 2.2))[..., None]
+            below = above
+        return light / segments * 0.35 * (smoothstep(0.02, 0.25, d[..., 1]) * (d[..., 1] > 0.02))[..., None]
+
+    def night(self, d, aurora_activity=1.0, pixel_angle=0.0, old_aurora=False):
         darkness = (1 - self.sun_visibility()) * (1 - self.overcast())
         if darkness <= 0:
             return np.zeros(d.shape)
         ext = smoothstep(-0.05, 0.25, d[..., 1])[..., None]
         c = self.celestial(d)
-        light = (self.stars(c) + self.milky_way(c)) * ext
-        light += self.aurora(d) * aurora_activity
+        light = (self.stars(c, pixel_angle) + self.milky_way(c)) * ext
+        if old_aurora:
+            jitter = unit_float(hash_u32(d.astype(np.float32).view(U32)[..., 0] ^ hash_u32(d.astype(np.float32).view(U32)[..., 1])))
+            light += self.aurora_layers(d, jitter=jitter) * aurora_activity
+        else:
+            light += self.aurora(d) * aurora_activity
         return light * darkness * (d[..., 1] > -0.05)[..., None]
 
-    def sky(self, d, aurora_activity=1.0):
-        return self.sky_radiance(d) + self.sun_disc(d) + self.night(d, aurora_activity)
+    def sky(self, d, aurora_activity=1.0, pixel_angle=0.0, old_aurora=False):
+        return self.sky_radiance(d) + self.sun_disc(d) + self.night(d, aurora_activity, pixel_angle, old_aurora)
 
 
 def display(hdr, frame, bloom=None, saturation=1.1, warmth=1.0, vignette=True):
@@ -271,11 +310,54 @@ def sky_times():
 def night_sky():
     f = Frame(-0.6, temperature=0.0, quality=1)
     d = camera_rays(960, 540, yaw=np.radians(100), pitch=np.radians(28), fov=80)
-    label(to_image(display(f.sky(d, aurora_activity=1.0), f)), "night, cold biome: stars, Milky Way, aurora").save(OUT / "night-aurora.png")
+    pixel = np.radians(80) / 540
+    label(to_image(display(f.sky(d, 1.0, pixel), f)), "night, cold biome: stars, Milky Way, aurora").save(OUT / "night-aurora.png")
     d = camera_rays(960, 540, yaw=np.radians(-60), pitch=np.radians(45), fov=80)
     label(to_image(display(f.sky(d, aurora_activity=0.0), f)), "night, temperate: Milky Way").save(OUT / "night-milky-way.png")
     f_low = Frame(-0.6, quality=0)
     label(to_image(display(f_low.sky(d, aurora_activity=0.0), f_low)), "night, Low preset (simplified Milky Way)").save(OUT / "night-milky-way-low.png")
+
+
+def aurora_before_after():
+    f = Frame(-0.6, temperature=0.0, quality=1)
+    w, h, fov = 960, 540, 80
+    d = camera_rays(w, h, yaw=np.radians(100), pitch=np.radians(28), fov=fov)
+    pixel = np.radians(fov) / h
+    for name, old in (("aurora-before", True), ("aurora-after", False)):
+        img = to_image(display(f.sky(d, 1.0, pixel, old_aurora=old), f))
+        caption = "1.1.0: ray march with per-ray jitter" if old else "1.1.1: exact integral, no sampling noise"
+        label(img, caption).save(OUT / f"{name}.png")
+        crop = img.crop((560, 120, 800, 255)).resize((720, 405), Image.NEAREST)
+        label(crop, caption + " (3x crop)").save(OUT / f"{name}-zoom.png")
+
+
+def dynamic_lights():
+    """A stone floor and wall at night, lit by a held light source: block light falls off one
+    level a block from it, through the pack's torch curve, in the source's [[lights]] colour."""
+    w, h = 320, 220
+    panels = []
+    f = Frame(-0.6)
+    for name, color in (("torch", (1.0, 0.62, 0.32)), ("soul torch", (0.35, 0.8, 1.0)), ("amethyst", (0.75, 0.45, 1.0))):
+        ys, xs = np.mgrid[0:h, 0:w]
+        floor = ys > h * 0.55
+        bx = (xs - w / 2) / 16.0
+        bz = np.where(floor, (ys - h * 0.55) / 10.0, 0.0)
+        by = np.where(floor, 0.0, (h * 0.55 - ys) / 16.0)
+        dist = np.abs(bx) + np.abs(bz - 2.0) + np.abs(by - 1.0)
+        level = np.clip((15 - dist) / 15.0, 0, 1)
+        tint = np.array(color) / max(color)
+        tint = tint ** 2.2
+        block = tint * (level ** 4 * 2.2 + level ** 1.5 * 0.06)[..., None]
+        dynamic = tint * (np.clip(1 - dist / 14.0, 0, 1) ** 2 * 0.6)[..., None]
+        checker = (((np.floor(xs / 16) + np.floor(ys / 16)) % 2) * 0.06 + 0.42)
+        albedo = np.stack([checker, checker * 0.98, checker * 0.95], -1) ** 2.2
+        ambient = np.array([0.008, 0.009, 0.012]) + f.sky_radiance(np.array([[0, 1.0, 0]]))[0] * 0.3
+        img = albedo * (block + dynamic + ambient)
+        panels.append(label(to_image(display(img, f, vignette=False)), name))
+    out = Image.new("RGB", (w * 3, h))
+    for i, pnl in enumerate(panels):
+        out.paste(pnl, (w * i, 0))
+    out.save(OUT / "dynamic-lights.png")
 
 
 def cumulus_density(p, time, coverage=0.5, rain=0.0, detail=True):
@@ -432,7 +514,7 @@ def main():
     OUT.mkdir(exist_ok=True)
     import sys
     names = sys.argv[1:]
-    for step in (sky_times, night_sky, clouds, water, tone_curve, blue_noise):
+    for step in (sky_times, night_sky, aurora_before_after, dynamic_lights, clouds, water, tone_curve, blue_noise):
         if names and step.__name__ not in names:
             continue
         step()

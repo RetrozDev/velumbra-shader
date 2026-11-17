@@ -15,8 +15,9 @@ for 60 fps at 1080p on a laptop RTX 3050.
 - **HDR post chain**: every stage stores light through one invertible curve, the post passes undo it and work in
   half floats, and one filmic curve maps the result at the end. Exposure adapts to caves and nights.
 - **Sky**: analytic single scattering (Rayleigh and Mie phases, Kasten–Young air mass, ozone) with its own sun disc.
-- **Night sky**: twinkling stars and a procedural Milky Way with dust lanes, turning with the sky; auroras on some
-  nights and most nights in cold biomes.
+- **Night sky**: twinkling stars kept at least a pixel wide so they stay sharp and still, a procedural Milky Way
+  with dust lanes, turning with the sky; auroras on some nights and most nights in cold biomes, each curtain's
+  glow integrated exactly along the ray, so they show no sampling noise.
 - **Clouds**: ray-marched cumulus at half resolution with Wrenninge's multiple-scattering approximation, a cirrus
   layer above, blue-noise dithering and temporal accumulation.
 - **Shadows**: percentage-closer soft shadows whose penumbra widens with the distance to the occluder, light tinted
@@ -25,8 +26,10 @@ for 60 fps at 1080p on a laptop RTX 3050.
   End, all at half resolution and accumulated over frames.
 - **Water**: waves, screen-space reflections falling back to the sky and clouds, optional mirror reflections,
   refraction, depth absorption and a sun glint.
-- **Lighting**: warm sunlight, blue sky ambient, warm block light with a slight direction, translucent foliage, wet
-  surfaces in rain, coloured lights from `[[lights]]` and dynamic lights.
+- **Lighting**: warm sunlight, blue sky ambient, block light with a slight direction in the colour of its sources
+  (warm torches, blue soul fire, violet amethyst), translucent foliage, wet surfaces in rain.
+- **Dynamic lights**: held and dropped torches, lanterns, glowstone and lava buckets, burning entities and flame
+  particles light their surroundings in their colour.
 - **Picture**: Jimenez's 13-tap bloom from HDR, temporal filtering with colour clipping, warm grade, vignette.
 
 ## Installation
@@ -47,7 +50,7 @@ The pack replaces vanilla's clouds, sun and stars; the moon stays.
 | Mist steps | 3 | 4 | 6 | 8 |
 | Shadow blocker search / filter taps | 0 / 4 (plain PCF) | 5 / 8 | 8 / 12 | 12 / 16 |
 | Water screen-space reflection steps | sky only | 14 | 22 | 32 |
-| Aurora layers | 6 | 10 | 14 | 20 |
+| Aurora stretches | 2 | 3 | 4 | 6 |
 | Milky Way | simplified | dust lanes | dust lanes | dust lanes |
 | Caustics | off | on | on | on |
 
@@ -81,6 +84,14 @@ reflections render the world a second time and can double the terrain cost, so t
 The options screen opens on the preset and exposure, with pages for Lighting (shadows, light shafts, mist, fog), Sky
 (clouds, night sky, auroras, wind), Water (waves, mirror reflections) and Picture (bloom, saturation, warmth,
 vignette, temporal filter).
+
+## Dynamic lights
+
+Horizon has its own dynamic lights: **Options → Video Settings → Dynamic Lights** (off by default). With it on, a
+light source held by a player or mob, dropped on the ground, or an entity on fire raises the block light around it
+(the 16 sources nearest the camera, within 96 blocks), and Velumbra lights it in the source's `[[lights]]` colour.
+Flame particles add their own glow. **Dynamic light strength** on the Lighting page scales it; 0 turns the pack's
+part off. Horizon's light doesn't stop at walls, and the pack can't add a shadow to it: it sees no light position.
 
 ## Connected glass
 
@@ -132,8 +143,6 @@ tools/                       check, prelude, previews, blue-noise generator
   before the post chain takes over in half floats.
 - Entities, block entities, particles and the hand are drawn by Horizon with vanilla's lighting: API 0.1 has no
   stage for them.
-- The sky stage gets no pixel position, so the auroras use per-ray hash noise rather than blue noise; the
-  temporal filter smooths it.
 
 ## License
 
